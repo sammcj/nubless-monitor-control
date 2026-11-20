@@ -89,6 +89,18 @@ pub(crate) fn pnp_id(vendor: u32) -> Option<String> {
     Some([letter(10)?, letter(5)?, letter(0)?].iter().collect())
 }
 
+/// The monitor's EDID name, from the name macOS shows for it. macOS tells
+/// identical monitors apart with a suffix ("LG ULTRAGEAR+ (Left)", "... (2)"),
+/// which wouldn't match the profile's name, and an EDID name (13 characters
+/// at most) has no room for.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn edid_name(shown: &str) -> String {
+    match shown.rsplit_once(" (") {
+        Some((name, _)) if shown.chars().count() > 13 => name.to_string(),
+        _ => shown.to_string(),
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn displays() -> Vec<(Display, OsInfo)> {
     Display::enumerate()
@@ -119,7 +131,7 @@ pub fn displays() -> Vec<(Display, OsInfo)> {
                     info.serial = Some(cg.serial_number()).filter(|&s| s != 0);
                 }
                 if info.model_name.is_none() {
-                    info.model_name = m.product_name();
+                    info.model_name = m.product_name().as_deref().map(edid_name);
                 }
             }
             let mut os = from_edid(
@@ -268,7 +280,16 @@ pub fn displays() -> Vec<(Display, OsInfo)> {
 
 #[cfg(test)]
 mod tests {
-    use super::pnp_id;
+    use super::{edid_name, pnp_id};
+
+    #[test]
+    fn strips_the_suffix_macos_adds_to_identical_monitors() {
+        assert_eq!(edid_name("LG ULTRAGEAR+ (Left)"), "LG ULTRAGEAR+");
+        assert_eq!(edid_name("LG ULTRAGEAR+ (2)"), "LG ULTRAGEAR+");
+        // 13 characters fit in an EDID, so these are the monitor's own name.
+        assert_eq!(edid_name("LG ULTRAGEAR+"), "LG ULTRAGEAR+");
+        assert_eq!(edid_name("DELL (U2720Q)"), "DELL (U2720Q)");
+    }
 
     #[test]
     fn decodes_pnp_manufacturer_ids() {
